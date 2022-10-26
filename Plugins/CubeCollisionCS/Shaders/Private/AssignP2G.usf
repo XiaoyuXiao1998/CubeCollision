@@ -1,0 +1,130 @@
+#include "/Engine/Public/Platform.ush"
+#define PI 3.14159265f
+
+RWStructuredBuffer<float4> Position;
+
+RWStructuredBuffer<int> particleNumInGrid ;
+RWStructuredBuffer<int> zSum ;
+
+RWStructuredBuffer<int> prefixSum ;
+RWStructuredBuffer<int> listHead ;
+RWStructuredBuffer<int> listCur;
+RWStructuredBuffer<int> listTail ;
+
+RWStructuredBuffer<int> particle_id ;
+
+
+int grid_x;
+int grid_y;
+int grid_z;
+
+
+
+int numOfParticle;
+
+float grid_size;
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void fillparticleNumInGrid(uint3 ThreadId : SV_DispatchThreadID)
+{
+	int index = ThreadId.z * grid_x *  grid_y +  ThreadId.y * grid_x + ThreadId.x;
+	
+	particleNumInGrid[index] = 0;
+	
+
+}
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void fillZSum(uint3 ThreadId : SV_DispatchThreadID)
+{
+	int index =  ThreadId.y * grid_x + ThreadId.x;
+	zSum[index] = 0;
+	
+
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void updateZSum(uint3 ThreadId : SV_DispatchThreadID)
+{
+
+	if(ThreadId.x < grid_x && ThreadId.y < grid_y && ThreadId.z < grid_z ){
+	int index = ThreadId.z * grid_x *  grid_y +  ThreadId.y * grid_x + ThreadId.x;
+
+
+	InterlockedAdd(zSum[ThreadId.y * grid_x + ThreadId.x],particleNumInGrid[index] );
+	}
+
+}
+
+
+
+
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void initPrefix(uint3 ThreadId : SV_DispatchThreadID)
+{
+	
+	
+	if(ThreadId.x < 50 && ThreadId.y < 50 ){
+
+		int initprefix = 0;
+		for(int j = 0; j < grid_y; j++){
+			for(int x = 0; x < grid_x; x++){
+				int index = j * grid_x + x;
+				prefixSum[index] = initprefix ;
+				initprefix += zSum[index];
+			}
+		
+		}
+		
+	}
+
+}
+
+
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void fillGridList(uint3 ThreadId : SV_DispatchThreadID)
+{
+	if(ThreadId.x < grid_x && ThreadId.y < grid_y && ThreadId.z < grid_z ){
+		int block =   ThreadId.y * grid_x + ThreadId.x;
+		int z_pre = ThreadId.z;
+		int z_sum = 0;
+		for(int z = 0; z < z_pre; z++ ){
+			z_sum += particleNumInGrid[z * grid_x *  grid_y + block ];
+		}
+		int index = ThreadId.z * grid_x *  grid_y +  ThreadId.y * grid_x + ThreadId.x;
+		listHead[index] = z_sum + prefixSum[block];
+		listTail[index] =  z_sum + prefixSum[block] + particleNumInGrid[z_pre * grid_x *  grid_y + block ];
+		listCur[index] =   z_sum + prefixSum[block];
+	
+	}
+
+}
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void fillParticlieID(uint3 ThreadId : SV_DispatchThreadID)
+{
+
+	
+	int index = ThreadId.y * THREADGROUPSIZE_X + ThreadId.x;
+	if(index < numOfParticle){
+		float xb = grid_x * grid_size /2.f;
+		float yb = grid_y * grid_size /2.f;
+		float zb = grid_z * grid_size /2.f;
+		int floor_x = floor((Position[index].x+ xb) / grid_size);
+		int floor_y = floor((Position[index].y+ yb) / grid_size);
+		int floor_z = floor((Position[index].z+ zb) / grid_size);
+		int locationInParticleID;
+		//?????????
+		InterlockedAdd(listCur[floor_z * grid_x * grid_y + floor_y * grid_x + floor_x], 1,locationInParticleID);
+		particle_id[locationInParticleID]  = index;
+
+	}
+
+}

@@ -1,0 +1,181 @@
+#include "/Engine/Public/Platform.ush"
+#define PI 3.14159265f
+
+RWStructuredBuffer<float4> Position;
+RWStructuredBuffer<float4> Velocity;
+RWStructuredBuffer<float4> Acc;
+RWStructuredBuffer<float4> Force;
+
+RWStructuredBuffer<int> particleNumInGrid ;
+RWStructuredBuffer<int> zSum ;
+
+RWStructuredBuffer<int> prefixSum ;
+RWStructuredBuffer<int> listHead ;
+RWStructuredBuffer<int> listCur;
+RWStructuredBuffer<int> listTail ;
+RWStructuredBuffer<int> particle_id;
+
+float m; // Cube mass
+float dt;
+float r;
+float stiffness;
+float restitution_coef;
+
+int grid_x;
+int grid_y;
+int grid_z;
+
+int numOfParticle;
+
+float grid_size;
+
+
+
+void resolve(int i, int j){
+	float3 relative_pos = Position[j] - Position[i];
+	float dist = sqrt(relative_pos[0] * relative_pos[0] + relative_pos[1] *relative_pos[1] + relative_pos[2] *relative_pos[2]);
+	float delta = -dist + 2 * r;
+	if(delta > 0){
+		float3 normal = relative_pos / dist;
+		float3 f1 = normal  * delta * stiffness;
+		//apply force
+		float M = (m * m )/ (m + m);
+		float K = stiffness;
+		float inter1 = PI/log(restitution_coef);
+		inter1 = inter1 * inter1;
+		float C = 2.f * (1.f /sqrt(1.f + inter1)) *sqrt(K * M);
+		float3 V = (Velocity[j] - Velocity[i]) * normal;
+		float3 f2 = C * V * normal;
+		
+		Force[i].xyz += f2 - f1;
+		Force[j].xyz -= (f2 -f1);
+		
+		
+
+	}
+}
+
+
+
+
+
+// use velocity verlet intergration to update  phsical quantities
+//for more details about verlet intergration, please refer to: https://en.wikipedia.org/wiki/Verlet_integration
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void update(uint3 ThreadId : SV_DispatchThreadID)
+{
+	int index = ThreadId.y * THREADGROUPSIZE_X + ThreadId.x;
+	if(index < numOfParticle){
+	float3 force  = Force[index].xyz;
+	//just for test
+	force +=float3(0, 0,-300.f * m);
+
+	//a(t+1)
+	float3 a = force / m;
+	float3 vel = Velocity[index].xyz;
+	float3 acc = Acc[index].xyz;
+	//v(t+1)
+	vel += (acc + a) * dt / 2.0;
+	//p(t+1)
+	Position[index].xyz  += vel * dt + 0.5 * a * dt * dt;
+	acc = a ;
+
+	//write to output texture
+	Force[index].xyz = float3(0.0,0.0,0.0);
+	Velocity[index].xyz = vel;
+	Acc[index].xyz = a;
+
+	float bounce_coef = 0.3;
+	float xb = grid_x * grid_size /2.f;
+	float yb = grid_y * grid_size /2.f;
+	float zb = grid_z * grid_size /2.f;
+
+	if( Position[index].z  - r < -zb){
+		 Position[index].z = r - zb;
+		 Velocity[index].z *=  - bounce_coef;
+	}
+	else if(Position[index].z  + r > zb){
+		Position[index].z = zb - r;
+		 Velocity[index].z *=  - bounce_coef;
+	}
+	if( Position[index].x  - r < -xb){
+		 Position[index].x = r -xb;
+		 Velocity[index].x *=  - bounce_coef;
+	}
+	else if(Position[index].x  + r > xb){
+		Position[index].x = xb - r;
+		 Velocity[index].x *=  - bounce_coef;
+	}
+	if( Position[index].y  - r < -yb){
+		 Position[index].y = r - yb;
+		 Velocity[index].y *=  - bounce_coef;
+	}
+	else if(Position[index].y  + r > yb){
+		Position[index].y = yb - r;
+		 Velocity[index].y *=  - bounce_coef;
+	}
+
+	int floor_x = floor((Position[index].x+ xb) / grid_size);
+	int floor_y = floor((Position[index].y+ yb) / grid_size);
+	int floor_z = floor((Position[index].z+ zb) / grid_size);
+
+	InterlockedAdd(particleNumInGrid[floor_z * grid_x * grid_y + floor_y * grid_x + floor_x], 1);
+
+	//particleNumInGrid[floor_z * grid_x * grid_y + floor_y * grid_x + floor_x] += 1;
+
+	}
+
+	
+
+
+}
+
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, THREADGROUPSIZE_Z)]
+void collision(uint3 ThreadId : SV_DispatchThreadID)
+{
+	int index = ThreadId.y * THREADGROUPSIZE_X + ThreadId.x;
+
+	if(index < numOfParticle){
+
+		float xb = grid_x * grid_size /2.f;
+		float yb = grid_y * grid_size /2.f;
+		float zb = grid_z * grid_size /2.f;
+		int floor_x = floor((Position[index].x+ xb) / grid_size);
+		int floor_y = floor((Position[index].y+ yb) / grid_size);
+		int floor_z = floor((Position[index].z+ zb) / grid_size);
+		int x_begin = max(floor_x-1,0);
+		int x_end = min(floor_x + 2, grid_x);
+		int y_begin = max(floor_y - 1 ,0);
+		int y_end = min(floor_y + 2 ,grid_y);
+		int z_begin = max(floor_z - 1, 0);
+		int z_end = min(floor_z + 2, grid_z);
+		for(int neigh_i = x_begin; neigh_i <x_end; neigh_i++){
+			for(int neigh_j = y_begin; neigh_j <y_end; neigh_j++){
+				for(int neigh_k = z_begin; neigh_k < z_end; neigh_k++){
+					int gridIndex = neigh_k * grid_x * grid_y + neigh_j * grid_x + neigh_i;
+					for(int particleIndex = listHead[gridIndex]; particleIndex <listTail[gridIndex];particleIndex ++ ){
+						int neigh_id = particle_id[particleIndex];
+						if(index < neigh_id){
+							resolve(index,neigh_id);
+						}
+					}
+				}
+			}
+		
+		}
+
+
+	}
+
+	
+
+
+//	if(index < numOfParticle){
+//		for(int j = index + 1; j < numOfParticle; j++){
+//			resolve(index,j);
+//		}
+//	}
+
+
+}
