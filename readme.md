@@ -1,15 +1,10 @@
 # UE5 simulating 1000 particles free fall with compute shader
 This project is a starting point using compute shaders to do physics simulation in UE5. It implements a 1000 particles collsion simulation in the GPU.
 
-<<<<<<< HEAD
-https://github.com/XiaoyuXiao1998/CubeCollision/tree/main/videos
-=======
-
 
 https://user-images.githubusercontent.com/55775855/198024470-e80c07cb-a7de-44fd-b210-d0887ea225d5.mp4
 
 
->>>>>>> 62b04f2973fdc794c52b175ef079704f243e911d
 
 ### Implementation details
 **1. simlation method**
