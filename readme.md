@@ -1,13 +1,9 @@
-# UE4 simulating 1000 cubes free fall with compute shader
-This project is a starting point use compute shaders to do physics simulation in UE5. It implements a 1000 particles collsion simulation in the GPU.
+# UE5 simulating 1000 particles free fall with compute shader
+This project is a starting point using compute shaders to do physics simulation in UE5. It implements a 1000 particles collsion simulation in the GPU.
 
-```HTML
-<video width="320" height="240" controls>
-    <source src="videos/collision.mp4" type="video/mp4">
-</video>
-```
+https://github.com/XiaoyuXiao1998/CubeCollision/tree/main/videos
 
-### Impletion details
+### Implementation details
 **1. simlation method**
 
 I use Discrete Element Method(DEM) to simulate particle collision.
